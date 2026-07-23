@@ -14,7 +14,7 @@ from typing import Dict, Tuple, List
 def sample_trajectory(
     env: gym.Env, policy: MLPPolicy, max_length: int, render: bool = False
 ) -> Dict[str, np.ndarray]:
-    """Sample a rollout in the environment from a policy."""
+    
     ob = env.reset()
     obs, acs, rewards, next_obs, terminals, image_obs = [], [], [], [], [], []
     steps = 0
@@ -30,14 +30,14 @@ def sample_trajectory(
             )
 
         # TODO use the most recent ob to decide what to do
-        ac = None
+        ac = policy.get_action(ob) 
 
         # TODO: take that action and get reward and next ob
-        next_ob, rew, done, info = None, None, None, None
+        next_ob, rew, done, info = env.step(ac)
 
         # TODO rollout can end due to done, or due to max_length
         steps += 1
-        rollout_done = None
+        rollout_done = done or steps >= max_length
 
         # record result of taking that action
         obs.append(ob)
