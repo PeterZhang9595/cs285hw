@@ -3,8 +3,8 @@ import numpy as np
 
 class ReplayBuffer:
     def __init__(self, capacity=1000000):
-        self.max_size = capacity
-        self.size = 0
+        self.max_size = capacity # maximum number of transitions to store
+        self.size = 0 # current number of transitions stored
         self.observations = None
         self.actions = None
         self.rewards = None
@@ -12,6 +12,7 @@ class ReplayBuffer:
         self.dones = None
 
     def sample(self, batch_size):
+        # random indices for sampling transitions
         rand_indices = np.random.randint(0, self.size, size=(batch_size,)) % self.max_size
         return {
             "observations": self.observations[rand_indices],
@@ -52,6 +53,7 @@ class ReplayBuffer:
         if isinstance(action, int):
             action = np.array(action, dtype=np.int64)
 
+        # Initialize the buffers if they haven't been created yet
         if self.observations is None:
             self.observations = np.empty(
                 (self.max_size, *observation.shape), dtype=observation.dtype
@@ -69,6 +71,7 @@ class ReplayBuffer:
         assert next_observation.shape == self.next_observations.shape[1:]
         assert done.shape == ()
 
+        # Instead of appending, we overwrite the oldest transition when the buffer is full
         self.observations[self.size % self.max_size] = observation
         self.actions[self.size % self.max_size] = action
         self.rewards[self.size % self.max_size] = reward
@@ -78,6 +81,10 @@ class ReplayBuffer:
         self.size += 1
 
 
+# #################################################
+# Notice this!!!                                  #
+# #################################################
+# Only from multiple stacked frames can we know the moving trend of the object.
 class MemoryEfficientReplayBuffer:
     """
     A memory-efficient version of the replay buffer for when observations are stacked.
@@ -98,6 +105,7 @@ class MemoryEfficientReplayBuffer:
         self.rewards = None
         self.dones = None
 
+        # save the indices of the frames in the framebuffer for each observation and next_observation
         self.observation_framebuffer_idcs = None
         self.next_observation_framebuffer_idcs = None
         self.framebuffer = None

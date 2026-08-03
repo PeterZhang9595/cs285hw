@@ -11,17 +11,17 @@ from infrastructure import pytorch_util as ptu
 class DQNAgent(nn.Module):
     def __init__(
         self,
-        observation_shape: Sequence[int],
+        observation_shape: Sequence[int], # sequence of integers representing the shape of the observation space
         num_actions: int,
         make_critic: Callable[[Tuple[int, ...], int], nn.Module],
         make_optimizer: Callable[[torch.nn.ParameterList], torch.optim.Optimizer],
         make_lr_schedule: Callable[
             [torch.optim.Optimizer], torch.optim.lr_scheduler._LRScheduler
-        ],
+        ], # Callble[[parameter1,parameter2,...],return_type] 
         discount: float,
         target_update_period: int,
         use_double_q: bool = False,
-        clip_grad_norm: Optional[float] = None,
+        clip_grad_norm: Optional[float] = None,# Could be a float or None, representing the maximum norm of the gradients for gradient clipping. If None, no clipping is applied.
     ):
         super().__init__()
 
@@ -45,13 +45,18 @@ class DQNAgent(nn.Module):
         """
         Epsilon-greedy action selection (default epsilon=0 for deterministic/greedy policy).
         """
-        observation = ptu.from_numpy(np.asarray(observation))[None]
+        observation = ptu.from_numpy(np.asarray(observation))[None] # None here means observation.unsqueeze(0), which adds a batch dimension, (4)->(1,4)
 
         # TODO(Section 2.4): get the action from the critic using an epsilon-greedy strategy
-        action = None
+        qa_values = self.critic(observation)
+        max_q_value, max_q_index = qa_values.max(dim=1) # max_q_index is the index of the action with the highest Q-value
+        if np.random.rand() < epsilon:
+            action = np.random.randint(0, self.num_actions)
+        else:
+            action = max_q_index.item()
         # ENDTODO
 
-        return ptu.to_numpy(action).squeeze(0).item()
+        return action
 
     def update_critic(
         self,
@@ -64,28 +69,30 @@ class DQNAgent(nn.Module):
         """Update the DQN critic, and return stats for logging."""
         (batch_size,) = reward.shape
 
+        # Go back and review the algorithm!
+
         # Compute target values
         with torch.no_grad():
             # TODO(Section 2.4): compute target values
-            next_qa_values = None
+            next_qa_values = self.target_critic(next_obs)
 
             if self.use_double_q:
                 # TODO(Section 2.5): implement double-Q target action selection
-                next_action = None
+                next_action = self.critic(next_obs).argmax(dim=1) # argmax already returns (batch_size,) shape
             else:
-                next_action = None
+                next_action = next_qa_values.argmax(dim=1) # argmax already returns (batch_size,) shape
 
-            next_q_values = None
+            next_q_values = next_qa_values.gather(dim=1,index=next_action.unsqueeze(1)).squeeze(1) # gather the Q-values corresponding to the selected actions
             assert next_q_values.shape == (batch_size,), next_q_values.shape
 
-            target_values = None
+            target_values = reward + self.discount * (1 - done.float()) * next_q_values # Here!
             assert target_values.shape == (batch_size,), target_values.shape
             # ENDTODO
 
         # TODO(Section 2.4): train the critic with the target values
-        qa_values = None
-        q_values = None
-        loss = None
+        qa_values = self.critic(obs)
+        q_values = qa_values.gather(dim=1, index=action.unsqueeze(1)).squeeze(1)
+        loss = self.critic_loss(q_values, target_values)
         # ENDTODO
 
         self.critic_optimizer.zero_grad()
@@ -122,6 +129,9 @@ class DQNAgent(nn.Module):
         # TODO(Section 2.4): update the critic, and the target if needed
         critic_stats = None
         # Hint: if step % self.target_update_period == 0: ...
+        critic_stats = self.update_critic(obs, action, reward, next_obs, done)
+        if step % self.target_update_period == 0:
+            self.update_target_critic()
         # ENDTODO
 
         return critic_stats
