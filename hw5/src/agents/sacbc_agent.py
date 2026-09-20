@@ -40,6 +40,7 @@ class SACBCAgent(nn.Module):
         self.target_update_rate = target_update_rate
         self.alpha = alpha
 
+        self.action_dim = action_dim
         self.target_entropy = -action_dim / 2  # Heuristic value (|A| / 2) from the SAC paper.
 
     def get_action(self, observation: np.ndarray):
@@ -64,8 +65,12 @@ class SACBCAgent(nn.Module):
         Update Q(s, a)
         """
         # TODO(student): Compute the Q loss
-        q = ...
-        loss = ...
+        with torch.no_grad():
+            next_actions = self.actor(next_observations).rsample()
+            target_q = self.target_critic(next_observations,next_actions).mean(dim=0)
+            y = rewards + self.discount * (1 - dones) * target_q
+        q = self.critic(observations,actions)
+        loss = ((q - y)**2).mean()
 
         self.critic_optimizer.zero_grad()
         loss.backward()
@@ -88,12 +93,14 @@ class SACBCAgent(nn.Module):
         Update the actor
         """
         # TODO(student): Compute the actor loss
-        q_loss = ...
+        dist = self.actor(observations)
+        actions_under_pi = dist.rsample()
+        q_loss = - self.critic(observations,actions_under_pi).mean()
 
-        mses = ...
-        bc_loss = ...
+        mses = ((actions - actions_under_pi) ** 2)
+        bc_loss = (self.alpha / self.action_dim) * mses.sum(dim=-1).mean()
 
-        entropy_loss = ...
+        entropy_loss = self.beta().detach() * dist.log_prob(actions_under_pi).mean()
 
         loss = q_loss + bc_loss + entropy_loss
 
@@ -156,4 +163,7 @@ class SACBCAgent(nn.Module):
 
     def update_target_critic(self) -> None:
         # TODO(student): Update target_critic using Polyak averaging with self.target_update_rate
-        ...
+        with torch.no_grad():
+            for param,target_param in zip(self.critic.parameters(),self.target_critic.parameters()):
+                target_param.data.copy_(self.target_update_rate * param.data + (1.0 - self.target_update_rate) * target_param.data)
+        

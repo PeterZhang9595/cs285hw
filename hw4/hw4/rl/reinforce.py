@@ -41,7 +41,7 @@ class Reinforce(RLAlgorithm):
         skipped_nonfinite = 0
         total_grad_norm = 0.0
         opt_steps = 0
-        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        trainable_params = [p for p in model.parameters() if p.requires_grad] 
 
         optimizer.zero_grad(set_to_none=True)
         rng = torch.Generator(device=rollout.input_ids.device)
@@ -54,6 +54,7 @@ class Reinforce(RLAlgorithm):
             generator=rng,
             device=next(model.parameters()).device,
         ):
+            # Advantage here is given by group normalized reward
             adv = mb.advantages.clamp(-cfg.adv_clip, cfg.adv_clip).detach()
             mask = mb.completion_mask
             if float(mask.sum().item()) <= 0.0:
@@ -87,7 +88,11 @@ class Reinforce(RLAlgorithm):
             # 4. kl = approx_kl_from_logprobs(new_logp, mb.ref_logprobs, mask)
             # 5. entropy = -masked_mean(new_logp, mask) for LOGGING ONLY
             #    (do not add an entropy term to the loss)
-            raise NotImplementedError("student TODO: Reinforce.update minibatch computations")
+            new_logp = compute_per_token_logprobs(model,mb.input_ids,mb.attention_mask)
+            seq_logp = masked_mean_per_row(new_logp,mask)
+            pg_loss = - torch.mean(adv * seq_logp)
+            kl = approx_kl_from_logprobs(new_logp,mb.ref_logprobs,mask)
+            entropy = - masked_mean(new_logp,mask)
 
             loss = (pg_loss + cfg.kl_coef * kl) / max(1, grad_accum_steps)
             if not torch.isfinite(loss):

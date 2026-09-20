@@ -1,0 +1,8 @@
+Launched 6 jobs: 2870481 2870483 2870485 2870489 2870495 2870497
+scripts/run_iql_sweep.sh: line 24: wait: pid 2870481 is not a child of this shell
+scripts/run_iql_sweep.sh: line 24: wait: pid 2870483 is not a child of this shell
+scripts/run_iql_sweep.sh: line 24: wait: pid 2870485 is not a child of this shell
+scripts/run_iql_sweep.sh: line 24: wait: pid 2870489 is not a child of this shell
+scripts/run_iql_sweep.sh: line 24: wait: pid 2870495 is not a child of this shell
+scripts/run_iql_sweep.sh: line 24: wait: pid 2870497 is not a child of this shell
+All jobs finished.

@@ -74,7 +74,6 @@ def sacbc_config(
             "make_critic_optimizer": make_optimizer,
             "make_beta": make_beta,
             "make_beta_optimizer": make_optimizer,
-
             "discount": discount,
             "target_update_rate": target_update_rate,
             "alpha": alpha,

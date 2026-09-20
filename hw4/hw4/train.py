@@ -202,7 +202,17 @@ def compute_group_advantages(rewards: torch.Tensor, group_size: int, eps: float 
     #   of your choice for that group
     #
     # Return a flat tensor with the same shape/order as rewards.
-    raise NotImplementedError("student TODO: compute_group_advantages")
+    group_advantages =  None
+    assert group_size >= 1
+    assert rewards.numel() % group_size == 0, "rewards shape must be divisible by group_size"
+    batch_size = rewards.numel() // group_size
+    rewards_reshape = rewards.reshape(batch_size,group_size)
+    rewards_mean = rewards_reshape.mean(dim=1,keepdim=True)
+    rewards_std = rewards_reshape.std(dim=1,keepdim=True,unbiased=False)
+    group_advantages = (rewards_reshape - rewards_mean) / (rewards_std + eps)
+    group_advantages = group_advantages.reshape(-1)
+    assert group_advantages.shape == rewards.shape
+    return group_advantages
 
 
 def maybe_normalize_advantages(advantages: torch.Tensor, enabled: bool, eps: float = 1e-6) -> torch.Tensor:
@@ -211,7 +221,13 @@ def maybe_normalize_advantages(advantages: torch.Tensor, enabled: bool, eps: flo
     # Again use the population standard deviation (unbiased=False).
     # Otherwise return A unchanged.
     # Keep the output shape identical to the input shape.
-    raise NotImplementedError("student TODO: maybe_normalize_advantages")
+    if not enabled:
+        return advantages
+    advantages_mean = advantages.mean(dim=0,keepdim=True)
+    advantages_std = advantages.std(dim=0,keepdim=True,unbiased=False)
+    normalize_advantages = (advantages - advantages_mean) / (advantages_std + eps)
+    return normalize_advantages
+    
 
 
 def maybe_update_warmup_lr(optimizer: torch.optim.Optimizer, base_lr: float, step: int, warmup_steps: int) -> None:
@@ -501,6 +517,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
 
+
+    # 给model挂上一个lora,这样可以很好地保存 \pi_old和 \pi_\theta
     loaded = load_lora_policy_model_and_tokenizer(
         cfg.model_name,
         device=device,
@@ -657,11 +675,13 @@ def main():
         step_start = time.perf_counter()
         maybe_update_warmup_lr(optimizer, cfg.lr, step, cfg.warmup_steps)
 
+        # 从题库中抽取batch_size个题目
         examples = task.sample_train_batch(cfg.batch_size)
         prompt_messages = [ex.messages for ex in examples]
         task_names = [ex.task_name for ex in examples]
         task_metas = [ex.meta for ex in examples]
 
+        # 对于这batch_size个题目，使用基于当前策略sampler进行rollout
         rollout_out = sampler.rollout(
             policy_model=model,
             prompt_messages=prompt_messages,
@@ -673,6 +693,8 @@ def main():
             output_to_cpu=cfg.rollout_on_cpu,
         )
 
+        # 在GR-REINFORCE训练中，只进行一次策略更新；但是在GRPO中，会基于old policy和Importance sampling进行
+        # 数据复用，off-policy的训练
         rewards: List[float] = []
         reward_infos: List[Dict[str, Any]] = []
         info_accum: Dict[str, float] = {}
@@ -817,4 +839,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()

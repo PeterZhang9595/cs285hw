@@ -43,7 +43,38 @@ def compute_per_token_logprobs(
     #
     # Respect enable_grad: when enable_grad=False this function should not build an
     # autograd graph.
-    raise NotImplementedError("student TODO: compute_per_token_logprobs")
+
+
+    # Process the batch in chunks so the [chunk, L, V] logits tensor never
+    # materializes for the whole rollout batch at once (V ~ 151k => full-batch
+    # logits can exceed 40GB on math_hard). Per-token log-probs are independent,
+    # so chunking is numerically identical.
+    LOGPROB_CHUNK_SIZE = 8
+    chunks = []
+    with torch.set_grad_enabled(enable_grad):
+        B = input_ids.shape[0]
+        for start in range(0, B, LOGPROB_CHUNK_SIZE):
+            end = min(start + LOGPROB_CHUNK_SIZE, B)
+            chunk_ids = input_ids[start:end]
+            chunk_mask = attention_mask[start:end]
+
+            # calculate next-token prediction logits -> [chunk, L, V]
+            out = model(input_ids=chunk_ids, attention_mask=chunk_mask, use_cache=False)
+            out_logits = out.logits[:, :-1, :]  # [chunk, L-1, V]
+            targets = chunk_ids[:, 1:]          # [chunk, L-1]
+            V = out_logits.shape[-1]
+
+            # To use F.cross_entropy, the class dim must be dim=1 (here = vocab size).
+            per_token_logprobs = -F.cross_entropy(
+                out_logits.reshape(-1, V), targets.reshape(-1), reduction="none"
+            )
+            chunks.append(per_token_logprobs.reshape(end - start, -1))
+
+        per_token_logprobs_final = torch.cat(chunks, dim=0)
+
+    return per_token_logprobs_final
+
+
 
 
 def build_completion_mask(
@@ -66,7 +97,11 @@ def build_completion_mask(
     # prompt_input_len is the (padded) prompt length before completion tokens were
     # appended. You can use attention_mask to exclude padding; pad_token_id is passed
     # for convenience but a direct attention-mask-based solution is fine.
-    raise NotImplementedError("student TODO: build_completion_mask")
+    completion_mask = attention_mask[:,1:].float()
+    completion_mask[:,:prompt_input_len - 1] = 0.0
+    return completion_mask
+
+
 
 
 def masked_sum(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -110,4 +145,6 @@ def approx_kl_from_logprobs(
     #                             = KL(p_new || p_ref).
     #
     # The clamp to [-20, 20] is for numerical stability / variance control.
-    raise NotImplementedError("student TODO: approx_kl_from_logprobs")
+    delta = torch.clamp(ref_logprobs - new_logprobs, - log_ratio_clip, log_ratio_clip)
+    per_token = torch.exp(delta) - delta - 1.0
+    return masked_mean(x=per_token,mask=mask,eps=eps)
